@@ -71,7 +71,10 @@ def _validate_path_pair(
             )
             i += 1
 
-    if in_file_valid == out_file_valid:
+    # Path spelling and filesystem links must not let the output overwrite the input.
+    if in_file_valid == out_file_valid or (
+        out_file_valid.exists() and in_file_valid.samefile(out_file_valid)
+    ):
         raise ValueError("The input file cannot be the same path as the output file.")
 
     return in_file_valid, out_file_valid

@@ -1056,3 +1056,55 @@ def test_instrument_map_resolve_definition(
     for i, (instrument_id, date) in enumerate(zip(instrument_ids, dates)):
         resolve_result = store._instrument_map.resolve(instrument_id, date)
         assert resolve_many_result[i] == resolve_result
+
+
+@pytest.mark.parametrize("format_", ["csv", "json"])
+@pytest.mark.parametrize("alias", ["relative", "absolute", "symlink", "hardlink", "identical"])
+def test_symbol_mapping_rejects_same_file_alias(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    format_: str,
+    alias: str,
+) -> None:
+    source = tmp_path / f"input.{format_}"
+    data = (
+        b"ts_event,instrument_id\n2024-01-01T00:00:00Z,1\n"
+        if format_ == "csv"
+        else b'{"hd":{"instrument_id":1,"ts_event":"2024-01-01T00:00:00Z"}}\n'
+    )
+    source.write_bytes(data)
+    output = tmp_path / f"alias.{format_}"
+    monkeypatch.chdir(tmp_path)
+    if alias == "relative":
+        output = pathlib.Path(source.name)
+    elif alias == "absolute":
+        source = pathlib.Path(source.name)
+        output = source.absolute()
+    elif alias == "symlink":
+        output.symlink_to(source)
+    elif alias == "hardlink":
+        output.hardlink_to(source)
+    else:
+        output = source
+
+    mapper = getattr(InstrumentMap(), f"map_symbols_{format_}")
+    with pytest.raises(ValueError, match="input file cannot be the same path"):
+        mapper(source, output)
+    assert source.read_bytes() == data
+
+
+@pytest.mark.parametrize("format_", ["csv", "json"])
+def test_symbol_mapping_allows_distinct_output(tmp_path: pathlib.Path, format_: str) -> None:
+    source = tmp_path / f"input.{format_}"
+    data = (
+        b"ts_event,instrument_id\n2024-01-01T00:00:00Z,1\n"
+        if format_ == "csv"
+        else b'{"hd":{"instrument_id":1,"ts_event":"2024-01-01T00:00:00Z"}}\n'
+    )
+    source.write_bytes(data)
+    output = tmp_path / f"output.{format_}"
+    output.write_text("old output")
+    mapper = getattr(InstrumentMap(), f"map_symbols_{format_}")
+    assert mapper(source, output) == output
+    assert source.read_bytes() == data
+    assert "symbol" in output.read_text()
